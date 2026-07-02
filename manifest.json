@@ -1,0 +1,20 @@
+{
+  "short_name": "注記配置",
+  "name": "注記配置コントロールパネル",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#7a8fa6",
+  "display": "standalone",
+  "theme_color": "#f0f0f0"
+}
