@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="注記配置">
+<meta name="theme-color" content="#f3f3f3">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<title>注記配置</title>
+<style>
+*, *::before, *::after {
+  margin: 0; padding: 0; box-sizing: border-box;
+}
+
+body {
+  font-family: 'Yu Gothic UI', 'Meiryo', 'MS UI Gothic', 'メイリオ', sans-serif;
+  font-size: 12px;
+  background: #f0f0f0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* ─── ダイアログ本体 ─── */
+.dlg {
+  width: 320px;
+  background: #f0f0f0;
+  border: none;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+/* ─── タイトルバー ─── */
+.titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 4px 4px 8px;
+  background: #f3f3f3;
+  border-bottom: 1px solid #dfdfdf;
+  height: 24px;
+  flex-shrink: 0;
+}
+.titlebar-text {
+  font-size: 12px;
+  color: #000;
+  line-height: 1;
+}
+.titlebar-close {
+  width: 20px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: #555;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+.titlebar-close:hover { background: #c42b1c; color: #fff; }
+
+/* ─── 本体 ─── */
+.body {
+  padding: 8px 8px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ─── セレクト(フルwidth) ─── */
+select.sel {
+  width: 100%;
+  height: 22px;
+  border: 1px solid #8d8d8d;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 0 2px;
+  color: #000;
+  margin-bottom: 3px;
+  appearance: auto;
+  cursor: pointer;
+}
+select.sel:focus {
+  outline: 2px solid #005fb7;
+  outline-offset: -2px;
+}
+
+/* ─── テキストエリア（受信） ─── */
+textarea.ta-recv {
+  width: 100%;
+  height: 94px;
+  border: 1px solid #8d8d8d;
+  background: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 3px;
+  resize: none;
+  margin-bottom: 3px;
+  color: #000;
+  overflow-y: scroll;
+}
+
+/* ─── テキストエリア（返信） ─── */
+textarea.ta-reply {
+  width: 100%;
+  height: 44px;
+  border: 1px solid #8d8d8d;
+  background: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 3px;
+  resize: none;
+  margin-bottom: 3px;
+  color: #000;
+}
+textarea.ta-reply:focus {
+  outline: 2px solid #005fb7;
+  outline-offset: -2px;
+}
+
+/* ─── ボタン基底 ─── */
+button.btn {
+  height: 23px;
+  padding: 0 10px;
+  background: #e1e1e1;
+  border: 1px solid #adadad;
+  font-family: inherit;
+  font-size: 12px;
+  color: #000;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.btn:hover { background: #cce4f7; border-color: #005fb7; }
+button.btn:active { background: #99c8ef; }
+
+/* ─── マスター登録（右寄せ） ─── */
+.master-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+/* ─── 基本/表示 タブ ─── */
+.tabs {
+  display: flex;
+  gap: 14px;
+  border-bottom: 1px solid #c8c8c8;
+  padding: 0 0 2px 2px;
+  margin-bottom: 6px;
+}
+.tab {
+  font-size: 12px;
+  color: #000;
+  cursor: pointer;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -3px;
+}
+.tab.active { border-bottom: 2px solid #444; }
+
+/* ─── 設定グリッド（2カラム） ─── */
+.settings {
+  display: grid;
+  grid-template-columns: 106px 1fr;
+  gap: 0 6px;
+  margin-bottom: 4px;
+}
+
+/* 左カラム */
+.col-l {}
+/* 右カラム */
+.col-r {}
+
+/* チェックボックス行 */
+label.cb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  height: 19px;
+  cursor: pointer;
+  color: #000;
+}
+label.cb.disabled { color: #a0a0a0; pointer-events: none; }
+input[type="checkbox"] { width: 13px; height: 13px; cursor: pointer; flex-shrink: 0; }
+input[type="radio"]    { width: 13px; height: 13px; cursor: pointer; flex-shrink: 0; }
+
+/* 設定1行（ラベル＋コントロール） */
+.srow {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 19px;
+  margin-bottom: 1px;
+}
+.slbl {
+  font-size: 12px;
+  white-space: nowrap;
+  color: #000;
+  flex-shrink: 0;
+}
+
+/* ミニセレクト */
+select.ssel {
+  height: 20px;
+  border: 1px solid #8d8d8d;
+  background: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 0 1px;
+  color: #000;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 角度テキスト */
+input.angle {
+  width: 28px;
+  height: 20px;
+  border: 1px solid #8d8d8d;
+  background: #fff;
+  font-size: 11px;
+  text-align: right;
+  padding: 0 2px;
+}
+
+/* 色スウォッチ */
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: #1a1a1a;
+  border: 1px solid #555;
+  flex-shrink: 0;
+}
+
+/* 基準位置行（左カラム下部） */
+.kijun {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 19px;
+  margin-top: 1px;
+}
+
+/* ─── セパレーター ─── */
+.sep {
+  border: none;
+  border-top: 1px solid #c0c0c0;
+  margin: 5px 0 5px 0;
+}
+
+/* ─── 下部3カラム ─── */
+.bottom {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+.b-left  { flex: 0 0 72px; }
+.b-mid   { flex: 1; min-width: 0; }
+.b-right { flex: 0 0 62px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+
+/* 形状ラジオ行 */
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 19px;
+  font-size: 11px;
+  flex-wrap: nowrap;
+}
+.radio-row label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* ─── ステータスバー ─── */
+.statusbar {
+  font-size: 10px;
+  color: #444;
+  background: #e8e8e8;
+  border-top: 1px solid #c8c8c8;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+/* NEW バッジ */
+#badge {
+  display: none;
+  color: #cc0000;
+  font-size: 11px;
+  font-weight: bold;
+  animation: blink 0.8s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+</style>
+</head>
+<body>
+<div class="dlg">
+
+  <!-- タイトルバー -->
+  <div class="titlebar">
+    <span class="titlebar-text">注記配置<span id="badge"> ●</span></span>
+    <button class="titlebar-close" title="閉じる">✕</button>
+  </div>
+
+  <!-- 本体 -->
+  <div class="body">
+
+    <!-- 注記マスタ（送信者） -->
+    <select class="sel" id="selSender" onchange="onSenderChange()">
+      <option value="">注記マスタ</option>
+    </select>
+
+    <!-- メッセージ選択 -->
+    <select class="sel" id="selMsg" onchange="onMsgChange()">
+      <option value="">　</option>
+    </select>
+
+    <!-- 受信メッセージ -->
+    <textarea class="ta-recv" id="taRecv" readonly></textarea>
+
+    <!-- 返信入力 -->
+    <textarea class="ta-reply" id="taReply" placeholder="返信を入力..."></textarea>
+
+    <!-- マスター登録（送信） -->
+    <div class="master-row">
+      <button class="btn" onclick="sendReply()">マスター登録</button>
+    </div>
+
+    <!-- 基本/表示 タブ -->
+    <div class="tabs">
+      <span class="tab active" onclick="">基本</span>
+      <span class="tab" onclick="">表示</span>
+    </div>
+
+    <!-- 設定2カラム -->
+    <div class="settings">
+
+      <!-- 左カラム -->
+      <div class="col-l">
+        <label class="cb"><input type="checkbox"> 下線付き</label>
+        <label class="cb"><input type="checkbox"> 斜体</label>
+        <label class="cb"><input type="checkbox"> 太字</label>
+        <div class="kijun">
+          <span class="slbl">基準位置</span>
+          <select class="ssel" style="flex:none;width:42px"><option>右下</option></select>
+        </div>
+      </div>
+
+      <!-- 右カラム -->
+      <div class="col-r">
+        <div class="srow">
+          <span class="slbl" style="width:44px">サイズ</span>
+          <select class="ssel"><option>160</option></select>
+        </div>
+        <div class="srow">
+          <span class="slbl" style="width:44px">ピッチ</span>
+          <select class="ssel"><option>自動</option></select>
+        </div>
+        <div class="srow">
+          <span class="slbl" style="width:44px">フォント</span>
+          <select class="ssel"><option>メイリオ</option></select>
+        </div>
+        <div class="srow">
+          <span class="slbl" style="width:44px">角度(°)</span>
+          <input class="angle" type="text" value="0">
+        </div>
+        <div class="srow">
+          <span class="slbl" style="width:44px">色</span>
+          <span class="swatch"></span>
+          <select class="ssel"><option>注記</option></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- セパレーター -->
+    <hr class="sep">
+
+    <!-- 下部 3カラム -->
+    <div class="bottom">
+
+      <!-- 左：階層 -->
+      <div class="b-left">
+        <label class="cb"><input type="checkbox"> ALL</label>
+        <label class="cb disabled" style="height:19px;margin-bottom:1px">
+          <input type="radio" name="layer" disabled>
+          <span style="font-size:12px;color:#a0a0a0">土台</span>
+        </label>
+        <label class="cb"><input type="checkbox"> 1階小屋</label>
+        <label class="cb"><input type="checkbox"> 1階母屋</label>
+      </div>
+
+      <!-- 中：引出線 -->
+      <div class="b-mid">
+        <label class="cb"><input type="checkbox" checked> 引出線</label>
+        <div class="srow">
+          <span class="slbl" style="width:28px">大さ</span>
+          <select class="ssel"><option>1</option></select>
+        </div>
+        <div class="srow">
+          <span class="slbl" style="width:28px">線種</span>
+          <select class="ssel"><option>実線</option></select>
+        </div>
+        <div class="radio-row">
+          <span class="slbl" style="width:28px">形状</span>
+          <label><input type="radio" name="shape"> 無</label>
+          <label><input type="radio" name="shape" checked> 矢印</label>
+          <label><input type="radio" name="shape"> 丸</label>
+        </div>
+        <div class="srow">
+          <span class="slbl" style="width:28px">サイズ</span>
+          <select class="ssel"><option>小</option></select>
+        </div>
+        <label class="cb"><input type="checkbox" checked> 下線</label>
+      </div>
+
+      <!-- 右：ボタン -->
+      <div class="b-right">
+        <button class="btn">設定保存</button>
+        <button class="btn">リセット</button>
+      </div>
+
+    </div>
+
+  </div><!-- /body -->
+
+  <!-- ステータスバー -->
+  <div class="statusbar" id="statusbar">待機中 | 次回更新: 60秒後</div>
+
+</div><!-- /dlg -->
+
+<script>
+/* ====================================================
+   ★ GAS WebアプリURLをここに設定
+   ==================================================== */
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbz_Xend_Lab0gEP9xbCX98NfWEsbl1aD_NCo_XsxrVzJ5bVTPLxMWf4501lQIcySXKfuQ/exec';
+
+let countdown = 60;
+let allMessages = [];
+let lastId = null;
+let timer = null;
+
+/* ---- 初期化 ---- */
+window.addEventListener('DOMContentLoaded', () => {
+  Notification.requestPermission();
+  fetch_msgs().then(() => startTimer());
+});
+
+/* ---- カウントダウンタイマー ---- */
+function startTimer() {
+  clearInterval(timer);
+  countdown = 60;
+  timer = setInterval(() => {
+    countdown--;
+    setStatus(`待機中 | 次回更新: ${countdown}秒後`);
+    if (countdown <= 0) {
+      clearInterval(timer);
+      fetch_msgs().then(() => startTimer());
+    }
+  }, 1000);
+}
+
+/* ---- メッセージ取得 ---- */
+async function fetch_msgs() {
+  setStatus('更新中...');
+  try {
+    const r = await fetch(`${GAS_URL}?action=getMessages`, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (d.messages && d.messages.length > 0) {
+      allMessages = d.messages;
+      buildSenderList();
+      const latest = d.messages[0];
+      if (latest.id !== lastId) {
+        lastId = latest.id;
+        showMsg(latest);
+        showNotification(latest.sender, latest.message);
+      }
+      setStatus(`受信: ${d.messages.length}件`);
+    } else {
+      setStatus('新着なし');
+    }
+  } catch(e) {
+    setStatus('接続エラー: ' + e.message);
+  }
+}
+
+/* ---- 送信者リスト構築 ---- */
+function buildSenderList() {
+  const sel = document.getElementById('selSender');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">注記マスタ</option>';
+  const seen = new Set();
+  allMessages.forEach(m => {
+    if (!seen.has(m.sender)) {
+      seen.add(m.sender);
+      const o = document.createElement('option');
+      o.value = m.sender;
+      o.textContent = m.sender;
+      sel.appendChild(o);
+    }
+  });
+  if (cur) sel.value = cur;
+  if (!sel.value && allMessages.length > 0) {
+    sel.value = allMessages[0].sender;
+    buildMsgList(allMessages[0].sender);
+  }
+}
+
+/* ---- メッセージリスト構築 ---- */
+function buildMsgList(sender) {
+  const sel = document.getElementById('selMsg');
+  sel.innerHTML = '';
+  const list = allMessages.filter(m => m.sender === sender);
+  list.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m.id;
+    const preview = m.message.length > 18 ? m.message.substring(0,18)+'…' : m.message;
+    o.textContent = `${m.time}  ${preview}`;
+    sel.appendChild(o);
+  });
+  if (list.length > 0) {
+    document.getElementById('taRecv').value = list[0].message;
+  }
+}
+
+/* ---- 送信者変更 ---- */
+function onSenderChange() {
+  const sender = document.getElementById('selSender').value;
+  if (sender) buildMsgList(sender);
+}
+
+/* ---- メッセージ選択変更 ---- */
+function onMsgChange() {
+  const id = document.getElementById('selMsg').value;
+  const m = allMessages.find(x => x.id === id);
+  if (m) document.getElementById('taRecv').value = m.message;
+}
+
+/* ---- メッセージ表示 ---- */
+function showMsg(msg) {
+  const s = document.getElementById('selSender');
+  // sender option を探す
+  let found = false;
+  for (const o of s.options) {
+    if (o.value === msg.sender) { s.value = msg.sender; found = true; break; }
+  }
+  if (found) {
+    buildMsgList(msg.sender);
+    document.getElementById('selMsg').value = msg.id;
+    document.getElementById('taRecv').value = msg.message;
+  }
+  document.getElementById('badge').style.display = 'inline';
+}
+
+/* ---- Windows通知 ---- */
+function showNotification(sender, text) {
+  if (Notification.permission === 'granted') {
+    const n = new Notification(`LINE: ${sender}`, { body: text });
+    n.onclick = () => { window.focus(); n.close(); };
+    setTimeout(() => n.close(), 10000);
+  }
+}
+
+/* ---- 返信送信 ---- */
+async function sendReply() {
+  const reply = document.getElementById('taReply').value.trim();
+  const msgId = document.getElementById('selMsg').value;
+  if (!reply) { alert('返信を入力してください'); return; }
+  setStatus('送信中...');
+  try {
+    const r = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ action: 'reply', messageId: msgId, reply })
+    });
+    const d = await r.json();
+    if (d.success) {
+      document.getElementById('taReply').value = '';
+      document.getElementById('badge').style.display = 'none';
+      setStatus('送信完了 ✓');
+    } else {
+      setStatus('送信失敗: ' + (d.error || '不明'));
+    }
+  } catch(e) {
+    setStatus('送信エラー: ' + e.message);
+  }
+}
+
+/* ---- ステータス更新 ---- */
+function setStatus(msg) {
+  document.getElementById('statusbar').textContent = msg;
+}
+</script>
+
+<script>
+// ─── サービスワーカー登録（PWA化） ───
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log('SW登録完了'))
+      .catch(e => console.warn('SW登録失敗:', e));
+  });
+}
+
+// ─── スタンドアロン起動時：ウィンドウサイズをダイアログに合わせる ───
+window.addEventListener('load', () => {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                     || window.navigator.standalone === true;
+  if (isStandalone) {
+    const dlg = document.querySelector('.dlg');
+    if (dlg) {
+      const rect = dlg.getBoundingClientRect();
+      const w = Math.ceil(rect.width)  || 340;
+      const h = Math.ceil(rect.height) || 640;
+      try {
+        window.resizeTo(w, h);
+      } catch (e) {
+        console.warn('resizeTo失敗:', e);
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>
