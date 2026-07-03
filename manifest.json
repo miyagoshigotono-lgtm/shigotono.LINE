@@ -2,7 +2,7 @@
   "name": "注記配置",
   "short_name": "注記配置",
   "description": "みやごシゴトノ ホットライン",
-  "start_url": "./chuki_line.html",
+  "start_url": "/miyago-hotline/chuki_line.html",
   "display": "standalone",
   "background_color": "#f0f0f0",
   "theme_color": "#f3f3f3",
