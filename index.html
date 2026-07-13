@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="注記配置">
 <meta name="theme-color" content="#f3f3f3">
 <link rel="manifest" href="./manifest.json">
+<link rel="icon" id="appIcon" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <title>注記配置</title>
 <style>
@@ -437,7 +438,9 @@ async function fetchAll() {
       const latest = allMessages[0];
       if (latest.id !== lastId) {
         lastId = latest.id;
-        showNotification(latest.sender, latest.message);
+        const senderUnread = allMessages.filter(m => m.userId === latest.userId).length;
+        const title = senderUnread > 1 ? `${latest.sender}（${senderUnread}件）` : latest.sender;
+        showNotification(title, latest.message);
         // 自動選択
         const sel = document.getElementById('selContact');
         sel.value = latest.userId;
@@ -486,7 +489,7 @@ function onContactChange() {
     return;
   }
 
-  // この連絡先の未読メッセージ
+  // この連絡先の未読メッセージ（返信するまで1件に蓄積して表示）
   const msgs = allMessages.filter(m => m.userId === userId);
 
   if (msgs.length > 0) {
@@ -494,14 +497,15 @@ function onContactChange() {
     currentMode = 'reply';
     taReply.placeholder = '返信を入力...';
     selMsg.innerHTML = '';
-    msgs.forEach(m => {
-      const o = document.createElement('option');
-      o.value = m.id;
-      const preview = m.message.length > 18 ? m.message.substring(0,18)+'…' : m.message;
-      o.textContent = `${m.time}  ${preview}`;
-      selMsg.appendChild(o);
-    });
-    taRecv.value = msgs[0].message;
+    const o = document.createElement('option');
+    o.value = userId;
+    const latest = msgs[0];
+    const preview = latest.message.length > 12 ? latest.message.substring(0,12)+'…' : latest.message;
+    o.textContent = msgs.length > 1
+      ? `${latest.time}  ${preview}（他${msgs.length - 1}件）`
+      : `${latest.time}  ${preview}`;
+    selMsg.appendChild(o);
+    taRecv.value = buildThreadText(msgs);
   } else {
     // 未読なし → 新規送信モード
     currentMode = 'newmsg';
@@ -511,11 +515,21 @@ function onContactChange() {
   }
 }
 
+/* ──── 同一送信者の未読を1つのスレッドとして連結 ──── */
+function buildThreadText(msgs) {
+  // 古い順に並べて時刻付きで連結（返信するまで蓄積表示）
+  return msgs.slice().reverse()
+    .map(m => `[${m.time}] ${m.message}`)
+    .join('\n');
+}
+
 /* ──── メッセージ選択変更 ──── */
 function onMsgChange() {
-  const id = document.getElementById('selMsg').value;
-  const m = allMessages.find(x => x.id === id);
-  if (m) document.getElementById('taRecv').value = m.message;
+  const userId = document.getElementById('selMsg').value;
+  const msgs = allMessages.filter(m => m.userId === userId);
+  if (msgs.length > 0) {
+    document.getElementById('taRecv').value = buildThreadText(msgs);
+  }
 }
 
 /* ──── 送信（返信 or 新規） ──── */
@@ -529,8 +543,10 @@ async function sendMessage() {
     let payload;
 
     if (currentMode === 'reply') {
-      const msgId = document.getElementById('selMsg').value;
-      payload = { action: 'reply', messageId: msgId, reply: text };
+      // 蓄積中の未読すべてに対する返信（最新のIDを代表に、全IDも渡す）
+      const msgs = allMessages.filter(m => m.userId === currentUserId);
+      const ids = msgs.map(m => m.id);
+      payload = { action: 'reply', messageId: ids[0], messageIds: ids, reply: text };
     } else {
       // 新規送信
       payload = { action: 'sendNew', userId: currentUserId, text: text };
@@ -565,6 +581,59 @@ function updateBadge() {
     } else {
       navigator.clearAppBadge().catch(() => {});
     }
+  }
+  updateAppIcon(count);
+}
+
+/* ──── アイコンの見た目変更（未読あり=赤バッジ付き） ──── */
+let baseIconImg = null;
+let iconState = null;  // 直前の描画状態（不要な再描画を防ぐ）
+
+function updateAppIcon(count) {
+  const state = count > 0 ? `unread:${Math.min(count, 100)}` : 'normal';
+  if (state === iconState) return;
+
+  document.title = count > 0 ? `(${count}) 注記配置` : '注記配置';
+
+  const apply = () => {
+    iconState = state;
+    if (count === 0) {
+      document.getElementById('appIcon').href = './icons/icon-192.png';
+      return;
+    }
+    const size = 192;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(baseIconImg, 0, 0, size, size);
+
+    // 右上に赤い通知バッジ
+    const r = size * 0.28;
+    const cx = size - r - 4, cy = r + 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#e60012';
+    ctx.fill();
+    ctx.lineWidth = size * 0.04;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+
+    // バッジ内に件数
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${r * 1.1}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(count > 99 ? '99+' : String(count), cx, cy + r * 0.05);
+
+    document.getElementById('appIcon').href = cv.toDataURL('image/png');
+  };
+
+  if (baseIconImg) {
+    apply();
+  } else {
+    const img = new Image();
+    img.onload = () => { baseIconImg = img; apply(); };
+    img.src = './icons/icon-192.png';
   }
 }
 
