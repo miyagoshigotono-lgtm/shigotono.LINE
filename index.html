@@ -392,6 +392,7 @@ input.angle {
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz_Xend_Lab0gEP9xbCX98NfWEsbl1aD_NCo_XsxrVzJ5bVTPLxMWf4501lQIcySXKfuQ/exec';
 
 const POLL_MS = 60000;     // 取得間隔（GASの実行時間クォータの都合でこれ以上は縮めない）
+const KEY_STORE = 'apiKey';
 
 let nextFetchAt = 0;       // 次回取得の実時刻（tick回数ではなく時刻で判定する）
 let allMessages = [];   // 未返信メッセージ
@@ -402,9 +403,31 @@ let timer = null;
 let currentMode = 'idle';  // 'reply' | 'newmsg' | 'idle'
 let currentUserId = null;  // 選択中の連絡先userId
 
+/* ============================================================
+   接続キー
+   GASのWebアプリは ANYONE_ANONYMOUS 公開のため、URLを知られると
+   誰でも叩けてしまう。キーはリポジトリが公開なのでソースに書けず、
+   初回に入力してこの端末のlocalStorageにだけ保存する。
+   ============================================================ */
+function getKey() {
+  try { return localStorage.getItem(KEY_STORE) || ''; } catch(e) { return ''; }
+}
+
+function askKey(msg) {
+  const k = (window.prompt(msg || '接続キーを入力してください（初回のみ）') || '').trim();
+  if (!k) return '';
+  try { localStorage.setItem(KEY_STORE, k); } catch(e) { /* 保存できなくても今回は動く */ }
+  return k;
+}
+
+function clearKey() {
+  try { localStorage.removeItem(KEY_STORE); } catch(e) {}
+}
+
 /* ──── 初期化 ──── */
 window.addEventListener('DOMContentLoaded', () => {
   Notification.requestPermission();
+  if (!getKey()) askKey();
   refreshNow();
 
   // 非表示中はブラウザがタイマーを最大1分/回まで間引くため、
@@ -414,6 +437,11 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   window.addEventListener('focus', refreshNow);
   window.addEventListener('online', refreshNow);
+
+  // キーの入れ直し（ステータスバーをダブルクリック）
+  document.getElementById('statusbar').addEventListener('dblclick', () => {
+    if (askKey('接続キーを入力し直してください')) refreshNow();
+  });
 });
 
 /* ──── カウントダウンタイマー ──── */
@@ -443,9 +471,17 @@ async function fetchAll() {
   fetching = true;
   setStatus('更新中...');
   try {
-    const r = await fetch(`${GAS_URL}?action=getAll`, { cache: 'no-store' });
+    const url = `${GAS_URL}?action=getAll&key=${encodeURIComponent(getKey())}`;
+    const r = await fetch(url, { cache: 'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
+
+    // GASのContentServiceはステータスコードを返せないため本文で判定する
+    if (d.error === 'unauthorized') {
+      clearKey();
+      setStatus('接続キーが違います');
+      return;
+    }
 
     allContacts = d.contacts || [];
     allMessages = d.messages || [];
@@ -607,6 +643,7 @@ async function sendMessage() {
       // 新規送信
       payload = { action: 'sendNew', userId: currentUserId, text: text };
     }
+    payload.key = getKey();
 
     const r = await fetch(GAS_URL, {
       method: 'POST',
@@ -615,7 +652,10 @@ async function sendMessage() {
     });
     const d = await r.json();
 
-    if (d.success) {
+    if (d.error === 'unauthorized') {
+      clearKey();
+      setStatus('接続キーが違います（未送信）');
+    } else if (d.success) {
       document.getElementById('taReply').value = '';
       setStatus('送信完了 ✓');
       // 即座に再取得
