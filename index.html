@@ -391,68 +391,160 @@ input.angle {
    ============================================================ */
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz_Xend_Lab0gEP9xbCX98NfWEsbl1aD_NCo_XsxrVzJ5bVTPLxMWf4501lQIcySXKfuQ/exec';
 
-let countdown = 60;
+const POLL_MS = 60000;     // 取得間隔（GASの実行時間クォータの都合でこれ以上は縮めない）
+const KEY_STORE = 'apiKey';
+
+let nextFetchAt = 0;       // 次回取得の実時刻（tick回数ではなく時刻で判定する）
 let allMessages = [];   // 未返信メッセージ
 let allContacts = [];   // 連絡先一覧
-let lastId = null;
+let notifiedIds = loadNotifiedIds();  // 通知済みメッセージID
+let fetching = false;
 let timer = null;
 let currentMode = 'idle';  // 'reply' | 'newmsg' | 'idle'
 let currentUserId = null;  // 選択中の連絡先userId
 
+/* ============================================================
+   接続キー
+   GASのWebアプリは ANYONE_ANONYMOUS 公開のため、URLを知られると
+   誰でも叩けてしまう。キーはリポジトリが公開なのでソースに書けず、
+   初回に入力してこの端末のlocalStorageにだけ保存する。
+   ============================================================ */
+function getKey() {
+  try { return localStorage.getItem(KEY_STORE) || ''; } catch(e) { return ''; }
+}
+
+function askKey(msg) {
+  const k = (window.prompt(msg || '接続キーを入力してください（初回のみ）') || '').trim();
+  if (!k) return '';
+  try { localStorage.setItem(KEY_STORE, k); } catch(e) { /* 保存できなくても今回は動く */ }
+  return k;
+}
+
+function clearKey() {
+  try { localStorage.removeItem(KEY_STORE); } catch(e) {}
+}
+
 /* ──── 初期化 ──── */
 window.addEventListener('DOMContentLoaded', () => {
   Notification.requestPermission();
-  fetchAll().then(() => startTimer());
+  if (!getKey()) askKey();
+  refreshNow();
+
+  // 非表示中はブラウザがタイマーを最大1分/回まで間引くため、
+  // 復帰したタイミングで取りこぼしを即座に拾う
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshNow();
+  });
+  window.addEventListener('focus', refreshNow);
+  window.addEventListener('online', refreshNow);
+
+  // キーの入れ直し（ステータスバーをダブルクリック）
+  document.getElementById('statusbar').addEventListener('dblclick', () => {
+    if (askKey('接続キーを入力し直してください')) refreshNow();
+  });
 });
 
 /* ──── カウントダウンタイマー ──── */
 function startTimer() {
   clearInterval(timer);
-  countdown = 60;
+  nextFetchAt = Date.now() + POLL_MS;
   timer = setInterval(() => {
-    countdown--;
-    setStatus(`待機中 | 次回更新: ${countdown}秒後`);
-    if (countdown <= 0) {
+    const remain = Math.max(0, Math.ceil((nextFetchAt - Date.now()) / 1000));
+    if (Date.now() >= nextFetchAt) {
       clearInterval(timer);
       fetchAll().then(() => startTimer());
+    } else {
+      setStatus(`待機中 | 次回更新: ${remain}秒後`);
     }
   }, 1000);
 }
 
+/* ──── 即時取得してタイマーを張り直す ──── */
+function refreshNow() {
+  clearInterval(timer);
+  fetchAll().then(() => startTimer());
+}
+
 /* ──── データ一括取得（メッセージ＋連絡先） ──── */
 async function fetchAll() {
+  if (fetching) return;
+  fetching = true;
   setStatus('更新中...');
   try {
-    const r = await fetch(`${GAS_URL}?action=getAll`, { cache: 'no-store' });
+    const url = `${GAS_URL}?action=getAll&key=${encodeURIComponent(getKey())}`;
+    const r = await fetch(url, { cache: 'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
+
+    // GASのContentServiceはステータスコードを返せないため本文で判定する
+    if (d.error === 'unauthorized') {
+      clearKey();
+      setStatus('接続キーが違います');
+      return;
+    }
 
     allContacts = d.contacts || [];
     allMessages = d.messages || [];
 
     buildContactList();
     updateBadge();
+    notifyNewMessages();
 
-    // 新着通知
-    if (allMessages.length > 0) {
-      const latest = allMessages[0];
-      if (latest.id !== lastId) {
-        lastId = latest.id;
-        const senderUnread = allMessages.filter(m => m.userId === latest.userId).length;
-        const title = senderUnread > 1 ? `${latest.sender}（${senderUnread}件）` : latest.sender;
-        showNotification(title, latest.message);
-        // 自動選択
-        const sel = document.getElementById('selContact');
-        sel.value = latest.userId;
-        onContactChange();
-      }
-      setStatus(`未読: ${allMessages.length}件`);
-    } else {
-      setStatus('新着なし');
-    }
+    setStatus(allMessages.length > 0 ? `未読: ${allMessages.length}件` : '新着なし');
   } catch(e) {
     setStatus('接続エラー: ' + e.message);
+  } finally {
+    fetching = false;
   }
+}
+
+/* ──── 未通知のメッセージを送信者ごとに1件だけ通知 ──── */
+function notifyNewMessages() {
+  // 未読から消えたIDは覚えておく必要がないので捨てる（際限なく溜まるのを防ぐ）
+  const liveIds = new Set(allMessages.map(m => m.id));
+  notifiedIds = new Set([...notifiedIds].filter(id => liveIds.has(id)));
+
+  // 新着を含む送信者を新しい順に拾う（allMessages は新しい順）
+  const freshUserIds = [];
+  allMessages.forEach(m => {
+    if (notifiedIds.has(m.id)) return;
+    if (!freshUserIds.includes(m.userId)) freshUserIds.push(m.userId);
+  });
+
+  // 通知は古い送信者から順に出す
+  freshUserIds.slice().reverse().forEach(userId => {
+    const msgs = allMessages.filter(m => m.userId === userId);
+    const latest = msgs[0];
+    const title = msgs.length > 1 ? `${latest.sender}（${msgs.length}件）` : latest.sender;
+    showNotification(title, latest.message, userId);
+  });
+
+  allMessages.forEach(m => notifiedIds.add(m.id));
+  saveNotifiedIds();
+
+  // 最新の送信者を自動選択。
+  // ただし返信を書きかけのときは、宛先がすり替わって誤送信になるので触らない
+  const draft = document.getElementById('taReply').value.trim();
+  if (freshUserIds.length > 0 && !draft) {
+    const sel = document.getElementById('selContact');
+    sel.value = freshUserIds[0];
+    onContactChange();
+  }
+}
+
+/* ──── 通知済みIDの永続化（再起動のたびに再通知しないため） ──── */
+function loadNotifiedIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('notifiedIds') || '[]'));
+  } catch(e) {
+    return new Set();
+  }
+}
+
+function saveNotifiedIds() {
+  try {
+    localStorage.setItem('notifiedIds', JSON.stringify([...notifiedIds]));
+  } catch(e) { /* 保存できなくても動作は継続 */ }
 }
 
 /* ──── 連絡先リスト構築 ──── */
@@ -551,6 +643,7 @@ async function sendMessage() {
       // 新規送信
       payload = { action: 'sendNew', userId: currentUserId, text: text };
     }
+    payload.key = getKey();
 
     const r = await fetch(GAS_URL, {
       method: 'POST',
@@ -559,7 +652,10 @@ async function sendMessage() {
     });
     const d = await r.json();
 
-    if (d.success) {
+    if (d.error === 'unauthorized') {
+      clearKey();
+      setStatus('接続キーが違います（未送信）');
+    } else if (d.success) {
       document.getElementById('taReply').value = '';
       setStatus('送信完了 ✓');
       // 即座に再取得
@@ -638,12 +734,24 @@ function updateAppIcon(count) {
 }
 
 /* ──── Windows通知 ──── */
-function showNotification(sender, text) {
-  if (Notification.permission === 'granted') {
-    const n = new Notification(`LINE: ${sender}`, { body: text });
-    n.onclick = () => { window.focus(); n.close(); };
-    setTimeout(() => n.close(), 10000);
-  }
+function showNotification(sender, text, userId) {
+  if (Notification.permission !== 'granted') return;
+  // tag: 同じ送信者の通知は積み上げずに置き換える
+  // requireInteraction: 席を外していても消えないよう、自動で閉じない
+  const n = new Notification(`LINE: ${sender}`, {
+    body: text,
+    tag: userId || sender,
+    icon: './icons/icon-192.png',
+    requireInteraction: true,
+  });
+  n.onclick = () => {
+    window.focus();
+    if (userId) {
+      document.getElementById('selContact').value = userId;
+      onContactChange();
+    }
+    n.close();
+  };
 }
 
 /* ──── ステータス更新 ──── */

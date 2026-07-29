@@ -1,15 +1,19 @@
-const CACHE = 'miyago-v1';
+const CACHE = 'miyago-v2';
 const ASSETS = [
-  './chuki_line.html',
+  './',
+  './index.html',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
 
 // インストール時：静的ファイルをキャッシュ
+// addAll は1つでも取得に失敗すると全体が失敗するため、個別に入れる
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS))
+    caches.open(CACHE).then(c =>
+      Promise.all(ASSETS.map(a => c.add(a).catch(err => console.warn('cache skip:', a, err))))
+    )
   );
   self.skipWaiting();
 });
