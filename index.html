@@ -401,7 +401,7 @@ let notifiedIds = loadNotifiedIds();  // 通知済みメッセージID
 let fetching = false;
 let timer = null;
 let currentMode = 'idle';  // 'reply' | 'newmsg' | 'idle'
-let currentUserId = null;  // 選択中の連絡先userId
+let currentTo = null;      // 選択中の会話ID（個チャ=userId / グループ=groupId）
 
 /* ============================================================
    接続キー
@@ -504,19 +504,21 @@ function notifyNewMessages() {
   const liveIds = new Set(allMessages.map(m => m.id));
   notifiedIds = new Set([...notifiedIds].filter(id => liveIds.has(id)));
 
-  // 新着を含む送信者を新しい順に拾う（allMessages は新しい順）
-  const freshUserIds = [];
+  // 新着を含む会話を新しい順に拾う（allMessages は新しい順）
+  const freshTos = [];
   allMessages.forEach(m => {
     if (notifiedIds.has(m.id)) return;
-    if (!freshUserIds.includes(m.userId)) freshUserIds.push(m.userId);
+    if (!freshTos.includes(m.to)) freshTos.push(m.to);
   });
 
-  // 通知は古い送信者から順に出す
-  freshUserIds.slice().reverse().forEach(userId => {
-    const msgs = allMessages.filter(m => m.userId === userId);
+  // 通知は古い会話から順に出す
+  freshTos.slice().reverse().forEach(to => {
+    const msgs = allMessages.filter(m => m.to === to);
     const latest = msgs[0];
-    const title = msgs.length > 1 ? `${latest.sender}（${msgs.length}件）` : latest.sender;
-    showNotification(title, latest.message, userId);
+    // グループは「グループ名 / 発言者」にして、個チャと取り違えないようにする
+    const who = convType(to) === 'user' ? latest.sender : `${convName(to)} / ${latest.sender}`;
+    const title = msgs.length > 1 ? `${who}（${msgs.length}件）` : who;
+    showNotification(title, latest.message, to);
   });
 
   allMessages.forEach(m => notifiedIds.add(m.id));
@@ -525,9 +527,9 @@ function notifyNewMessages() {
   // 最新の送信者を自動選択。
   // ただし返信を書きかけのときは、宛先がすり替わって誤送信になるので触らない
   const draft = document.getElementById('taReply').value.trim();
-  if (freshUserIds.length > 0 && !draft) {
+  if (freshTos.length > 0 && !draft) {
     const sel = document.getElementById('selContact');
-    sel.value = freshUserIds[0];
+    sel.value = freshTos[0];
     onContactChange();
   }
 }
@@ -547,6 +549,35 @@ function saveNotifiedIds() {
   } catch(e) { /* 保存できなくても動作は継続 */ }
 }
 
+/* ──── 会話の種別と表示名 ──── */
+// 個チャとグループを見分けられるようにする。
+// グループ発言に個別で返してしまう事故を防ぐため、UI上も明示する。
+function contactOf(to) {
+  return allContacts.find(c => c.to === to) || null;
+}
+
+function convName(to) {
+  const c = contactOf(to);
+  if (c) return c.name;
+  const m = allMessages.find(x => x.to === to);
+  return m ? m.sender : to;
+}
+
+function convType(to) {
+  const c = contactOf(to);
+  if (c) return c.sourceType;
+  const m = allMessages.find(x => x.to === to);
+  return m ? m.sourceType : 'user';
+}
+
+function convLabel(to) {
+  const t = convType(to);
+  const n = convName(to);
+  if (t === 'group') return '【G】' + n;
+  if (t === 'room')  return '【複】' + n;
+  return n;
+}
+
 /* ──── 連絡先リスト構築 ──── */
 function buildContactList() {
   const sel = document.getElementById('selContact');
@@ -555,10 +586,11 @@ function buildContactList() {
 
   allContacts.forEach(c => {
     const o = document.createElement('option');
-    o.value = c.userId;
-    // 未読件数を表示
-    const unread = allMessages.filter(m => m.userId === c.userId).length;
-    o.textContent = unread > 0 ? `${c.name}（${unread}件）` : c.name;
+    o.value = c.to;
+    // 未読件数を表示（会話単位）
+    const unread = allMessages.filter(m => m.to === c.to).length;
+    const label = convLabel(c.to);
+    o.textContent = unread > 0 ? `${label}（${unread}件）` : label;
     sel.appendChild(o);
   });
 
@@ -567,13 +599,13 @@ function buildContactList() {
 
 /* ──── 連絡先選択変更 ──── */
 function onContactChange() {
-  const userId = document.getElementById('selContact').value;
-  currentUserId = userId;
+  const to = document.getElementById('selContact').value;
+  currentTo = to;
   const selMsg = document.getElementById('selMsg');
   const taRecv = document.getElementById('taRecv');
   const taReply = document.getElementById('taReply');
 
-  if (!userId) {
+  if (!to) {
     selMsg.innerHTML = '<option value="">　</option>';
     taRecv.value = '';
     taReply.placeholder = '返信を入力...';
@@ -581,23 +613,25 @@ function onContactChange() {
     return;
   }
 
-  // この連絡先の未読メッセージ（返信するまで1件に蓄積して表示）
-  const msgs = allMessages.filter(m => m.userId === userId);
+  // この会話の未読メッセージ（返信するまで1件に蓄積して表示）
+  const msgs = allMessages.filter(m => m.to === to);
 
   if (msgs.length > 0) {
     // 未読メッセージあり → 返信モード
     currentMode = 'reply';
-    taReply.placeholder = '返信を入力...';
+    taReply.placeholder = convType(to) === 'user'
+      ? `${convName(to)} に返信...`
+      : `${convName(to)}（グループ全員に届きます）に返信...`;
     selMsg.innerHTML = '';
     const o = document.createElement('option');
-    o.value = userId;
+    o.value = to;
     const latest = msgs[0];
     const preview = latest.message.length > 12 ? latest.message.substring(0,12)+'…' : latest.message;
     o.textContent = msgs.length > 1
       ? `${latest.time}  ${preview}（他${msgs.length - 1}件）`
       : `${latest.time}  ${preview}`;
     selMsg.appendChild(o);
-    taRecv.value = buildThreadText(msgs);
+    taRecv.value = buildThreadText(msgs, to);
   } else {
     // 未読なし → 新規送信モード
     currentMode = 'newmsg';
@@ -607,20 +641,21 @@ function onContactChange() {
   }
 }
 
-/* ──── 同一送信者の未読を1つのスレッドとして連結 ──── */
-function buildThreadText(msgs) {
-  // 古い順に並べて時刻付きで連結（返信するまで蓄積表示）
+/* ──── 同じ会話の未読を1つのスレッドとして連結 ──── */
+function buildThreadText(msgs, to) {
+  // グループは複数人が発言するので、誰の発言かを併記する
+  const isGroup = convType(to) !== 'user';
   return msgs.slice().reverse()
-    .map(m => `[${m.time}] ${m.message}`)
+    .map(m => isGroup ? `[${m.time} ${m.sender}] ${m.message}` : `[${m.time}] ${m.message}`)
     .join('\n');
 }
 
 /* ──── メッセージ選択変更 ──── */
 function onMsgChange() {
-  const userId = document.getElementById('selMsg').value;
-  const msgs = allMessages.filter(m => m.userId === userId);
+  const to = document.getElementById('selMsg').value;
+  const msgs = allMessages.filter(m => m.to === to);
   if (msgs.length > 0) {
-    document.getElementById('taRecv').value = buildThreadText(msgs);
+    document.getElementById('taRecv').value = buildThreadText(msgs, to);
   }
 }
 
@@ -628,7 +663,15 @@ function onMsgChange() {
 async function sendMessage() {
   const text = document.getElementById('taReply').value.trim();
   if (!text) { alert('メッセージを入力してください'); return; }
-  if (!currentUserId) { alert('送信先を選択してください'); return; }
+  if (!currentTo) { alert('送信先を選択してください'); return; }
+
+  // グループへの送信はメンバー全員に見えるので、誤爆しないよう一度確認する
+  if (convType(currentTo) !== 'user') {
+    if (!confirm(`「${convName(currentTo)}」のメンバー全員に送信します。よろしいですか？`)) {
+      setStatus('送信を中止しました');
+      return;
+    }
+  }
 
   setStatus('送信中...');
   try {
@@ -636,12 +679,12 @@ async function sendMessage() {
 
     if (currentMode === 'reply') {
       // 蓄積中の未読すべてに対する返信（最新のIDを代表に、全IDも渡す）
-      const msgs = allMessages.filter(m => m.userId === currentUserId);
+      const msgs = allMessages.filter(m => m.to === currentTo);
       const ids = msgs.map(m => m.id);
       payload = { action: 'reply', messageId: ids[0], messageIds: ids, reply: text };
     } else {
       // 新規送信
-      payload = { action: 'sendNew', userId: currentUserId, text: text };
+      payload = { action: 'sendNew', to: currentTo, text: text };
     }
     payload.key = getKey();
 
@@ -734,20 +777,20 @@ function updateAppIcon(count) {
 }
 
 /* ──── Windows通知 ──── */
-function showNotification(sender, text, userId) {
+function showNotification(sender, text, to) {
   if (Notification.permission !== 'granted') return;
   // tag: 同じ送信者の通知は積み上げずに置き換える
   // requireInteraction: 席を外していても消えないよう、自動で閉じない
   const n = new Notification(`LINE: ${sender}`, {
     body: text,
-    tag: userId || sender,
+    tag: to || sender,
     icon: './icons/icon-192.png',
     requireInteraction: true,
   });
   n.onclick = () => {
     window.focus();
-    if (userId) {
-      document.getElementById('selContact').value = userId;
+    if (to) {
+      document.getElementById('selContact').value = to;
       onContactChange();
     }
     n.close();
