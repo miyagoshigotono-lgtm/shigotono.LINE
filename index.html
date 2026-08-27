@@ -479,7 +479,7 @@ async function fetchAll() {
     // GASのContentServiceはステータスコードを返せないため本文で判定する
     if (d.error === 'unauthorized') {
       clearKey();
-      setStatus('接続キーが違います');
+      setStatus('接続キーが違います', true);
       return;
     }
 
@@ -492,7 +492,7 @@ async function fetchAll() {
 
     setStatus(allMessages.length > 0 ? `未読: ${allMessages.length}件` : '新着なし');
   } catch(e) {
-    setStatus('接続エラー: ' + e.message);
+    setStatus('接続エラー: ' + e.message, true);
   } finally {
     fetching = false;
   }
@@ -697,17 +697,22 @@ async function sendMessage() {
 
     if (d.error === 'unauthorized') {
       clearKey();
-      setStatus('接続キーが違います（未送信）');
+      setStatus('接続キーが違います（未送信）', true);
+      alert('接続キーが違うため送信できませんでした。\n\n未送信です。ステータスバーをダブルクリックしてキーを入れ直してください。');
     } else if (d.success) {
       document.getElementById('taReply').value = '';
       setStatus('送信完了 ✓');
       // 即座に再取得
       await fetchAll();
     } else {
-      setStatus('送信失敗: ' + (d.error || '不明'));
+      const why = d.error || '原因不明';
+      setStatus('送信失敗: ' + why, true);
+      // 送ったつもりで届いていない状態が一番まずいので、必ず気づかせる
+      alert('送信できませんでした。\n\n' + why + '\n\n入力内容は残してあります。');
     }
   } catch(e) {
-    setStatus('送信エラー: ' + e.message);
+    setStatus('送信エラー: ' + e.message, true);
+    alert('送信できませんでした。\n\n' + e.message + '\n\n入力内容は残してあります。');
   }
 }
 
@@ -798,8 +803,14 @@ function showNotification(sender, text, to) {
 }
 
 /* ──── ステータス更新 ──── */
-function setStatus(msg) {
+// カウントダウンが毎秒ステータスバーを書き換えるため、エラーを出しても
+// 1秒で消えて読めなかった。sticky を立てた表示はしばらく保持する。
+let stickyUntil = 0;
+
+function setStatus(msg, sticky) {
+  if (!sticky && Date.now() < stickyUntil) return;
   document.getElementById('statusbar').textContent = msg;
+  stickyUntil = sticky ? Date.now() + 30000 : 0;
 }
 </script>
 
