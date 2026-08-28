@@ -398,6 +398,7 @@ let nextFetchAt = 0;       // 次回取得の実時刻（tick回数ではなく�
 let allMessages = [];   // 未返信メッセージ
 let allContacts = [];   // 連絡先一覧
 let notifiedIds = loadNotifiedIds();  // 通知済みメッセージID
+let quota = null;          // LINE の月間送信可能数の残り
 let fetching = false;
 let timer = null;
 let currentMode = 'idle';  // 'reply' | 'newmsg' | 'idle'
@@ -454,7 +455,7 @@ function startTimer() {
       clearInterval(timer);
       fetchAll().then(() => startTimer());
     } else {
-      setStatus(`待機中 | 次回更新: ${remain}秒後`);
+      setStatus(`待機中 | 次回更新: ${remain}秒後${quotaText()}`);
     }
   }, 1000);
 }
@@ -483,6 +484,7 @@ async function fetchAll() {
       return;
     }
 
+    quota = d.quota || null;
     allContacts = d.contacts || [];
     allMessages = d.messages || [];
 
@@ -490,7 +492,12 @@ async function fetchAll() {
     updateBadge();
     notifyNewMessages();
 
-    setStatus(allMessages.length > 0 ? `未読: ${allMessages.length}件` : '新着なし');
+    setStatus((allMessages.length > 0 ? `未読: ${allMessages.length}件` : '新着なし') + quotaText());
+
+    // 残りが少なくなったら、送れなくなる前に気づけるようにする
+    if (quota && quota.remaining !== null && quota.remaining <= 10) {
+      setStatus(`残り${quota.remaining}通です。まもなく送信できなくなります`, true);
+    }
   } catch(e) {
     setStatus('接続エラー: ' + e.message, true);
   } finally {
@@ -800,6 +807,14 @@ function showNotification(sender, text, to) {
     }
     n.close();
   };
+}
+
+/* ──── 残り送信可能数の表示 ──── */
+// 無料枠は小さく、グループ宛は人数分カウントされるため、気づかないうちに
+// 尽きて送信だけ失敗する。常に見えるようにしておく。
+function quotaText() {
+  if (!quota || quota.remaining === null || quota.remaining === undefined) return '';
+  return ` | 残り${quota.remaining}通`;
 }
 
 /* ──── ステータス更新 ──── */
